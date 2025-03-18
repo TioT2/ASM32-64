@@ -1,0 +1,60 @@
+     1                                  ; Hello world example
+     2                                  
+     3                                  section .data
+     4 00000000 496E70757420717561-     S_Input: db `Input quadratic equation coefficents:\n\0`
+     4 00000009 647261746963206571-
+     4 00000012 756174696F6E20636F-
+     4 0000001B 6566666963656E7473-
+     4 00000024 3A0A00             
+     5 00000027 09413A2000              S_CoefA: db `\tA: \0`
+     6 0000002C 09423A2000              S_CoefB: db `\tB: \0`
+     7 00000031 09433A2000              S_CoefC: db `\tC: \0`
+     8 00000036 256600                  S_ScanfFormat: db `\%f\0`
+     9                                  
+    10                                  section .text
+    11                                  global main
+    12                                  
+    13                                  extern printf
+    14                                  extern scanf
+    15                                  extern exit
+    16                                  
+    17                                  ; Start function
+    18                                  main:
+    19 00000000 55                      	push rbp
+    20 00000001 4889E5                  	mov rbp, rsp
+    21 00000004 4883EC08                	sub rsp, 8
+    22                                  
+    23                                  
+    24 00000008 48BF-                   	mov rdi, S_Input
+    24 0000000A [0000000000000000] 
+    25 00000012 E8(00000000)            	call printf
+    26                                  
+    27 00000017 48BF-                   	mov rdi, S_CoefA
+    27 00000019 [2700000000000000] 
+    28 00000021 E8(00000000)            	call printf
+    29                                  
+    30 00000026 48BF-                   	mov rdi, S_ScanfFormat
+    30 00000028 [3600000000000000] 
+    31 00000030 4889EE                  	mov rsi, rbp
+    32 00000033 E8(00000000)            	call scanf
+    33                                  
+    34 00000038 48BF-                   	mov rdi, S_ScanfFormat
+    34 0000003A [3600000000000000] 
+    35 00000042 488B36                  	mov rsi, [rsi]
+    36 00000045 E8(00000000)            	call printf
+    37                                  
+    38 0000004A 48BF-                   	mov rdi, S_CoefB
+    38 0000004C [2C00000000000000] 
+    39 00000054 E8(00000000)            	call printf
+    40                                  
+    41 00000059 48BF-                   	mov rdi, S_CoefC
+    41 0000005B [3100000000000000] 
+    42 00000063 E8(00000000)            	call printf
+    43                                  
+    44 00000068 4883C408                	add rsp, 8
+    45 0000006C 5D                      	pop rbp
+    46                                  
+    47 0000006D BF00000000              	mov rdi, 0
+    48 00000072 E8(00000000)            	call exit
+    49 00000077 B800000000              	mov rax, 0
+    50 0000007C C3                      	ret
