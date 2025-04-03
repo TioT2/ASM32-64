@@ -1,7 +1,6 @@
-#include "ql.h"
-#include <stdio.h>
+/// Main program function
 
-void call_example( void );
+#include "ql.h"
 
 /**
  * @brief Main program function (C STDLIB initialization is disabled, so I must use _start as entry point)
@@ -10,10 +9,19 @@ void _start( void ) {
 	// newline!
 	ql_print_str("\nnewline test!\n");
 
+	// Text string
 	const char *text = "Hello";
-	// Initial format test.
-	ql_print_fmt("%s!!! %d!!! 0x%x. %b.\n", text, (long long)-42, (long long)0xDEADBEEF, (long long)0xFFFFFFFFFFFFFFFF);
-	ql_print_fmt("%o%% %c", (long long)8, 'q');
+
+	ql_print_fmt("%d!!!\n", 0);
+
+	// String, decimal, hexadecimal and binary test
+	ql_print_fmt("%s!!! %d!!! 0x%x. %b.\n", text, -42ll, 0xDEADBEEFll, 0xFFFFFFFFFFFFFFFFll);
+
+	// Octal, percent and character test
+	ql_print_fmt("%o%% %c\n", 8ll, 'q');
+
+	// Floating point overflow test
+	ql_print_fmt("%f %f %f %f %f %f %f %f %f %f\n", 3.0, 1.0, 2.0, 4.0, 5.0, 5.0, 5.0, 5.0, 4.0, 7.0);
 
 	// Flush output buffer
 	ql_flush();

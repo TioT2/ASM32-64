@@ -1,0 +1,110 @@
+     1                                  ; Render implementation file
+     2                                  
+     3                                  %include "src/render_def.s"
+     1                              <1> ; Render definitions
+     2                              <1> 
+     3                              <1> ; Linux systemcall definitions
+     4                              <1> %define LINUX_SYSCALL_OPEN   0x02
+     5                              <1> %define LINUX_SYSCALL_CLOSE  0x06
+     6                              <1> %define LINUX_SYSCALL_MMAP   0x09
+     7                              <1> %define LINUX_SYSCALL_MUNMAP 0x0B
+     8                              <1> %define LINUX_SYSCALL_EXIT   0x3C
+     9                              <1> 
+    10                              <1> ; Linux read-write
+    11                              <1> %define LINUX_O_RDWR 2
+    12                              <1> 
+    13                              <1> ; Render context structure
+    14                              <1> struc mnd_render_context
+    15 00000000 ????????????????    <1>     .fb_map_ptr resq 1
+    16 00000008 ????                <1>     .fb_file    resw 1
+    17 0000000A ????                <1>     .stride     resw 1
+    18 0000000C ????                <1>     .width      resw 1
+    19 0000000E ????                <1>     .height     resw 1
+    20 00000010 ????????????????    <1>     .data       resq 1
+    21                              <1> endstruc
+     4                                  
+     5                                  section .rodata
+     6                                  
+     7                                  ; Framebuffer file path
+     8 00000000 2F6465762F66623000      mnd_fb_file_path: db "/dev/fb0", 0x00
+     9                                  
+    10                                  section .data
+    11                                  
+    12                                  section .text
+    13                                  
+    14                                  ; Declare render functions
+    15                                  global mnd_render_init
+    16                                  global mnd_render_term
+    17                                  global mnd_render_draw
+    18                                  
+    19                                  ; Temporary render initialization implementation
+    20                                  extern mnd_render_init_impl
+    21                                  
+    22                                  ; Render mandelbrot set
+    23                                  ; CONV: SYSTEM-V 64
+    24                                  ; IN:
+    25                                  ;	context - RDI
+    26                                  mnd_render_draw:
+    27                                  .y_loop:
+    28 00000000 0F58C0                  	addps xmm0, xmm0
+    29                                  
+    30                                  .x_loop:
+    31                                  .x_loop_end:
+    32                                  .y_loop_end:
+    33 00000003 C3                      	ret
+    34                                  
+    35                                  ; Initialize framebuffer structures
+    36                                  ; CONV: SYSTEM-V 64
+    37                                  ; IN:
+    38                                  ;	context - RDI
+    39                                  ; OUT:
+    40                                  ;	status (bool) - RAX
+    41                                  mnd_render_init:
+    42 00000004 E8(00000000)            	call mnd_render_init_impl ; Call C implementation, lol
+    43 00000009 C3                      	ret
+    44                                  
+    45                                  	; open("/dev/fb0", O_RDWR)
+    46 0000000A B802000000              	mov rax, LINUX_SYSCALL_OPEN
+    47 0000000F 48BF-                   	mov rdi, mnd_fb_file_path
+    47 00000011 [0000000000000000] 
+    48 00000019 BE02000000              	mov rsi, LINUX_O_RDWR
+    49 0000001E 0F05                    	syscall
+    50                                  
+    51 00000020 83F8FF                  	cmp eax, -1
+    52 00000023 740B                    	je .fail
+    53                                  
+    54                                  	; Save file handle to global variable
+    55 00000025 894708                  	mov [rdi + mnd_render_context.fb_file], eax
+    56 00000028 4831C0                  	xor rax, rax
+    57 0000002B 48FFC0                  	inc rax
+    58                                  
+    59 0000002E EB03                    	jmp .end
+    60                                  .fail:
+    61 00000030 4831C0                  	xor rax, rax
+    62                                  .end:
+    63 00000033 C3                      	ret
+    64                                  
+    65                                  ; Deinitialize framebuffer structures
+    66                                  ; CONV: SYSTEM-V 64
+    67                                  ; IN:
+    68                                  ;	context - RDI
+    69                                  ; OUT:
+    70                                  ;	status (bool) - RAX
+    71                                  mnd_render_term:
+    72                                  	; Unmap memory
+    73 00000034 57                      	push rdi
+    74 00000035 B80B000000              	mov rax, LINUX_SYSCALL_MUNMAP
+    75 0000003A 488B3F                  	mov rdi, [rdi + mnd_render_context.fb_map_ptr]
+    76 0000003D 0F05                    	syscall
+    77 0000003F 5F                      	pop rdi
+    78                                  
+    79                                  	; Close file, lol
+    80 00000040 57                      	push rdi
+    81 00000041 B806000000              	mov rax, LINUX_SYSCALL_CLOSE
+    82 00000046 488B7F08                	mov rdi, [rdi + mnd_render_context.fb_file]
+    83 0000004A 0F05                    	syscall
+    84 0000004C 5F                      	pop rdi
+    85                                  	
+    86 0000004D 4831C0                  	xor rax, rax
+    87 00000050 48FFC0                  	inc rax
+    88 00000053 C3                      	ret

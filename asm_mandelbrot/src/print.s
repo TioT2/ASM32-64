@@ -3,85 +3,85 @@
 section .data
 
 ; Output buffer length
-%define ql_out_buffer_len 512
+%define mnd_out_buffer_len 512
 
 ; Buffer contents
-ql_out_buffer: times ql_out_buffer_len db 0
+mnd_out_buffer: times mnd_out_buffer_len db 0
 
-; Current buffer length (< ql_out_buffer_len)
-ql_out_buffer_current_len: dq 0
+; Current buffer length (< mnd_out_buffer_len)
+mnd_out_buffer_current_len: dq 0
 
 ; Length of number print buffer
-%define ql_number_print_buffer_len 128
+%define mnd_number_print_buffer_len 128
 
 ; Number formatting buffer (is ok to be 65, because it's not needed)
-ql_number_print_buffer: times ql_number_print_buffer_len db 0
+mnd_number_print_buffer: times mnd_number_print_buffer_len db 0
 
 ; a b c d e f g h i j k l m n o p q r s t u v w x y z
-;   - - -                     -       -         -    
+;   - - -                     -       -         -
 
 ; Jump table. Maybe it's a bit..overweight.
-ql_print_fmt__jump_table: ; b..x values
-	dq ql_print_int_base2  ; b
-	dq ql_print_char       ; c
-	dq ql_print_int_base10 ; d
-	dq ql_empty_function
-	dq ql_print_float      ; f
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_print_int_base8  ; o
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_print_str        ; s
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_empty_function
-	dq ql_print_int_base16 ; x
+mnd_print_fmt__jump_table: ; b..x values
+	dq mnd_print_int_base2  ; b
+	dq mnd_print_char       ; c
+	dq mnd_print_int_base10 ; d
+	dq mnd_empty_function
+	dq mnd_print_float      ; f
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_print_int_base8  ; o
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_print_str        ; s
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_empty_function
+	dq mnd_print_int_base16 ; x
 
 ; Load floating-point arguments from xmm registers.
-ql_print_fmt_next_float__jump_table:
-	dq ql_print_fmt_next_float.from_xmm0
-	dq ql_print_fmt_next_float.from_xmm1
-	dq ql_print_fmt_next_float.from_xmm2
-	dq ql_print_fmt_next_float.from_xmm3
-	dq ql_print_fmt_next_float.from_xmm4
-	dq ql_print_fmt_next_float.from_xmm5
-	dq ql_print_fmt_next_float.from_xmm6
-	dq ql_print_fmt_next_float.from_xmm7
+mnd_print_fmt_next_float__jump_table:
+	dq mnd_print_fmt_next_float.from_xmm0
+	dq mnd_print_fmt_next_float.from_xmm1
+	dq mnd_print_fmt_next_float.from_xmm2
+	dq mnd_print_fmt_next_float.from_xmm3
+	dq mnd_print_fmt_next_float.from_xmm4
+	dq mnd_print_fmt_next_float.from_xmm5
+	dq mnd_print_fmt_next_float.from_xmm6
+	dq mnd_print_fmt_next_float.from_xmm7
 
 section .text
 
 ; Expose library functions
-global ql_str_length
-global ql_flush
-global ql_print_char
-global ql_print_fmt
-global ql_print_str
-global ql_exit
-global ql_print_int_base2
-global ql_print_int_base8
-global ql_print_int_base10
-global ql_print_int_base16
+global mnd_str_length
+global mnd_flush
+global mnd_print_char
+global mnd_print_fmt
+global mnd_print_str
+global mnd_exit
+global mnd_print_int_base2
+global mnd_print_int_base8
+global mnd_print_int_base10
+global mnd_print_int_base16
 
 ; Exit from program
 ; CONV: SYSTEM-V 64
 ; IN:
 ;	exit code: RDI
-ql_exit:
+mnd_exit:
 	mov rax, 60
 	syscall
 	ret
 
 ; Does nothing
-ql_empty_function:
+mnd_empty_function:
 	ret
 
 ; Flush output buffer
@@ -91,8 +91,8 @@ ql_empty_function:
 ;	RDI
 ;	RSI
 ;	RDX
-ql_flush:
-	mov rax, [ql_out_buffer_current_len]
+mnd_flush:
+	mov rax, [mnd_out_buffer_current_len]
 
 	; Omit empty flush)
 	test rax, rax
@@ -101,13 +101,13 @@ ql_flush:
 	; Display out buffer
 	mov rax, 1
 	mov rdi, 1
-	mov rsi, ql_out_buffer
-	mov rdx, [ql_out_buffer_current_len]
+	mov rsi, mnd_out_buffer
+	mov rdx, [mnd_out_buffer_current_len]
 	syscall
 
 	; Clear out buffer
 	xor rax, rax
-	mov [ql_out_buffer_current_len], rax
+	mov [mnd_out_buffer_current_len], rax
 
 .end:
 	ret
@@ -121,7 +121,7 @@ ql_flush:
 ; USES:
 ;	RSI (= 0)
 ;	RDI (= _RDI)
-ql_str_length:
+mnd_str_length:
 	mov rax, rdi
 
 .continue:
@@ -141,26 +141,26 @@ ql_str_length:
 ; USES:
 ;	R8
 ;	DIL
-ql_print_char:
+mnd_print_char:
 	; bl - char to print - lower byte of RDI register.
-	mov r8, [ql_out_buffer_current_len]
+	mov r8, [mnd_out_buffer_current_len]
 
 	; Flush output buffer if it's filled
-	cmp r8, ql_out_buffer_len
+	cmp r8, mnd_out_buffer_len
 	jb .no_flush
 
 	; It's very infrequent, so it's ok to do this here
 	push rax
 	push rsi
 	push rdx
-	call ql_flush
+	call mnd_flush
 	pop rdx
 	pop rsi
 	pop rax
 
 .no_flush:
-	mov [r8 + ql_out_buffer], dil
-	inc dword [ql_out_buffer_current_len]
+	mov [r8 + mnd_out_buffer], dil
+	inc dword [mnd_out_buffer_current_len]
 	ret
 
 ; Print binary integer
@@ -172,9 +172,9 @@ ql_print_char:
 ;	RDI
 ;	RSI
 ;	R8
-ql_print_int_base2:
+mnd_print_int_base2:
 	mov rax, rdi
-	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
+	mov rdi, mnd_number_print_buffer + mnd_number_print_buffer_len - 1
 
 	test rax, rax
 	jnz .continue
@@ -198,7 +198,7 @@ ql_print_int_base2:
 	jnz .continue
 
 .end:
-	call ql_print_str
+	call mnd_print_str
 	ret
 
 ; Print binary integer
@@ -210,9 +210,9 @@ ql_print_int_base2:
 ;	RDI
 ;	RSI
 ;	R8
-ql_print_int_base8:
+mnd_print_int_base8:
 	mov rax, rdi
-	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
+	mov rdi, mnd_number_print_buffer + mnd_number_print_buffer_len - 1
 
 	test rax, rax
 	jnz .continue
@@ -236,7 +236,7 @@ ql_print_int_base8:
 	jnz .continue
 
 .end:
-	call ql_print_str
+	call mnd_print_str
 	ret
 
 ; Print binary integer
@@ -249,17 +249,18 @@ ql_print_int_base8:
 ;	RDI
 ;	RSI
 ;	R8
-ql_print_int_base10:
+mnd_print_int_base10:
 	xor rdx, rdx
 
 	push rdi
 
 	mov rax, rdi
-	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
+	mov rdi, mnd_number_print_buffer + mnd_number_print_buffer_len - 1
 
 	test rax, rax
 	jnz .nonzero
 
+	pop rax
 	dec rdi
 	mov byte [rdi], 0x30
 	jmp .end
@@ -299,7 +300,7 @@ ql_print_int_base10:
 
 .end:
 	; Print string in r10
-	call ql_print_str
+	call mnd_print_str
 	ret
 
 ; Print binary integer
@@ -311,9 +312,9 @@ ql_print_int_base10:
 ;	RDI
 ;	RSI
 ;	R8
-ql_print_int_base16:
+mnd_print_int_base16:
 	mov rax, rdi
-	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
+	mov rdi, mnd_number_print_buffer + mnd_number_print_buffer_len - 1
 
 	test rax, rax
 	jnz .continue
@@ -343,17 +344,17 @@ ql_print_int_base16:
 	jnz .continue
 
 .end:
-	call ql_print_str
+	call mnd_print_str
 	ret
 
-; Print float (alias to ql_print_int_base16 now)
+; Print float (alias to mnd_print_int_base16 now)
 ; IN:
 ;	number to print - rdi
 ; TODO:
 ;	BUILD ACTUAL FLOAT PRINTING FUNCTION
-ql_print_float:
+mnd_print_float:
 	movq xmm0, rdi
-	call ql_print_int_base16
+	call mnd_print_int_base16
 	ret
 
 ; Print string (new implementation)
@@ -362,17 +363,17 @@ ql_print_float:
 ;	string to print (null-terminated) - RDI
 ; USES:
 ;	???
-ql_print_str_2:
+mnd_print_str_2:
 	; Calculate string length
-	call ql_str_length
+	call mnd_str_length
 
 	; Check if input string is longer, than input buffer. In this case, it's better to output it with systemcall only.
-	cmp rax, ql_out_buffer_len
+	cmp rax, mnd_out_buffer_len
 	jge .very_long_str
 
 	; Read rest length of current buffer
-	mov rbx, ql_out_buffer_len
-	sub rbx, [ql_out_buffer_current_len]
+	mov rbx, mnd_out_buffer_len
+	sub rbx, [mnd_out_buffer_current_len]
 
 	; Compare output length with rbx
 	cmp rbx, rax
@@ -386,9 +387,9 @@ ql_print_str_2:
 	jnz .end
 
 	; Fill
-	mov qword [ql_out_buffer_current_len], ql_out_buffer_len
+	mov qword [mnd_out_buffer_current_len], mnd_out_buffer_len
 	; Flush current buffer
-	call ql_flush
+	call mnd_flush
 
 .end:
 	ret
@@ -397,7 +398,7 @@ ql_print_str_2:
 	; TODO: Save registers
 
 	; Flush input buffer
-	call ql_flush
+	call mnd_flush
 
 	; Display input string with systemcall only.
 	mov rdx, rax
@@ -418,15 +419,15 @@ ql_print_str_2:
 ;	R8
 ; TODO:
 ;	REWRITE THIS SH*T
-ql_print_str:
+mnd_print_str:
 	; RAX = string length
-	call ql_str_length
+	call mnd_str_length
 
 	mov rsi, rdi
 	jmp .test
 
 .continue:
-	call ql_print_char
+	call mnd_print_char
 .test:
 	mov dil, [rsi]
 	inc rsi
@@ -440,11 +441,11 @@ ql_print_str:
 ;	float index - R9
 ; OUT:
 ;	float value - RDI
-ql_print_fmt_next_float:
+mnd_print_fmt_next_float:
 	cmp r9, 8
 	jge .from_stack
 
-	jmp [r9 * 8 + ql_print_fmt_next_float__jump_table]
+	jmp [r9 * 8 + mnd_print_fmt_next_float__jump_table]
 .from_xmm0:
 	movq rdi, xmm0
 	jmp .end
@@ -477,7 +478,7 @@ ql_print_fmt_next_float:
 	shr r9, 3
 	; load froms tack
 	mov rdi, [rdi]
-	
+
 .end:
 
 	ret
@@ -488,7 +489,7 @@ ql_print_fmt_next_float:
 ;	format string - rdi
 ; USES:
 ;	...
-ql_print_fmt:
+mnd_print_fmt:
 	; Save stack value
 	mov r10, rsp
 
@@ -533,7 +534,7 @@ ql_print_fmt:
 
 	; Further optimization?
 	mov dil, al
-	call ql_print_char
+	call mnd_print_char
 
 	; Print character
 	jmp .main_loop
@@ -542,7 +543,7 @@ ql_print_fmt:
 
 	; %c, %s, %d, %x, %o, %b, %%
 	; a b c d e f g h i j k l m n o p q r s t u v w x y z
-	;   - - -                     -       -         -    
+	;   - - -                     -       -         -
 	; b..x jump table
 
 	; Load character into RAX
@@ -568,7 +569,7 @@ ql_print_fmt:
 	jne .load_arg_stack
 
 	; Load next float
-	call ql_print_fmt_next_float
+	call mnd_print_fmt_next_float
 	inc r9
 
 	jmp .call
@@ -580,7 +581,7 @@ ql_print_fmt:
 .call:
 
 	; Use jump table!
-	call [rax * 8 + ql_print_fmt__jump_table - 62h * 8]
+	call [rax * 8 + mnd_print_fmt__jump_table - 62h * 8]
 	jmp .main_loop
 
 .end:
