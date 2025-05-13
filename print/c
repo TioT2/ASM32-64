@@ -8,592 +8,655 @@
      8                                  ; Buffer contents
      9 00000000 00<rep 200h>            ql_out_buffer: times ql_out_buffer_len db 0
     10                                  
-    11                                  ; Current buffer length (< ql_out_buffer_len)
-    12 00000200 0000000000000000        ql_out_buffer_current_len: dq 0
+    11                                  ; Buffer end pointer
+    12                                  ql_out_buffer_end:
     13                                  
-    14                                  ; Length of number print buffer
-    15                                  %define ql_number_print_buffer_len 128
+    14                                  ; Current buffer length (< ql_out_buffer_len)
+    15 00000200 0000000000000000        ql_out_buffer_current_len: dq 0
     16                                  
-    17                                  ; Number formatting buffer (is ok to be 65, because it's not needed)
-    18 00000208 00<rep 80h>             ql_number_print_buffer: times ql_number_print_buffer_len db 0
+    17                                  ; Length of number print buffer
+    18                                  %define ql_number_print_buffer_len 128
     19                                  
-    20                                  ; a b c d e f g h i j k l m n o p q r s t u v w x y z
-    21                                  ;   - - -                     -       -         -    
+    20                                  ; Number formatting buffer
+    21 00000208 00<rep 80h>             ql_number_print_buffer: times ql_number_print_buffer_len db 0
     22                                  
-    23                                  ; Jump table. Maybe it's a bit..overweight.
-    24                                  ql_print_fmt__jump_table: ; b..x values
-    25 00000288 [7F00000000000000]      	dq ql_print_int_base2  ; b
-    26 00000290 [5400000000000000]      	dq ql_print_char       ; c
-    27 00000298 [F600000000000000]      	dq ql_print_int_base10 ; d
-    28 000002A0 [0800000000000000]      	dq ql_empty_function
-    29 000002A8 [9A01000000000000]      	dq ql_print_float      ; f
-    30 000002B0 [0800000000000000]      	dq ql_empty_function
-    31 000002B8 [0800000000000000]      	dq ql_empty_function
-    32 000002C0 [0800000000000000]      	dq ql_empty_function
-    33 000002C8 [0800000000000000]      	dq ql_empty_function
-    34 000002D0 [0800000000000000]      	dq ql_empty_function
-    35 000002D8 [0800000000000000]      	dq ql_empty_function
-    36 000002E0 [0800000000000000]      	dq ql_empty_function
-    37 000002E8 [0800000000000000]      	dq ql_empty_function
-    38 000002F0 [BA00000000000000]      	dq ql_print_int_base8  ; o
-    39 000002F8 [0800000000000000]      	dq ql_empty_function
-    40 00000300 [0800000000000000]      	dq ql_empty_function
-    41 00000308 [0800000000000000]      	dq ql_empty_function
-    42 00000310 [F301000000000000]      	dq ql_print_str        ; s
-    43 00000318 [0800000000000000]      	dq ql_empty_function
-    44 00000320 [0800000000000000]      	dq ql_empty_function
-    45 00000328 [0800000000000000]      	dq ql_empty_function
-    46 00000330 [0800000000000000]      	dq ql_empty_function
-    47 00000338 [5401000000000000]      	dq ql_print_int_base16 ; x
-    48                                  
-    49                                  ; Load floating-point arguments from xmm registers.
-    50                                  ql_print_fmt_next_float__jump_table:
-    51 00000340 [1C02000000000000]      	dq ql_print_fmt_next_float.from_xmm0
-    52 00000348 [2302000000000000]      	dq ql_print_fmt_next_float.from_xmm1
-    53 00000350 [2A02000000000000]      	dq ql_print_fmt_next_float.from_xmm2
-    54 00000358 [3102000000000000]      	dq ql_print_fmt_next_float.from_xmm3
-    55 00000360 [3802000000000000]      	dq ql_print_fmt_next_float.from_xmm4
-    56 00000368 [3F02000000000000]      	dq ql_print_fmt_next_float.from_xmm5
-    57 00000370 [4602000000000000]      	dq ql_print_fmt_next_float.from_xmm6
-    58 00000378 [4D02000000000000]      	dq ql_print_fmt_next_float.from_xmm7
-    59                                  
-    60                                  section .text
-    61                                  
-    62                                  ; Expose library functions
-    63                                  global ql_str_length
-    64                                  global ql_flush
-    65                                  global ql_print_char
-    66                                  global ql_print_fmt
-    67                                  global ql_print_str
-    68                                  global ql_exit
-    69                                  global ql_print_int_base2
-    70                                  global ql_print_int_base8
-    71                                  global ql_print_int_base10
-    72                                  global ql_print_int_base16
-    73                                  
-    74                                  ; Exit from program
-    75                                  ; CONV: SYSTEM-V 64
-    76                                  ; IN:
-    77                                  ;	exit code: RDI
-    78                                  ql_exit:
-    79 00000000 B83C000000              	mov rax, 60
-    80 00000005 0F05                    	syscall
-    81 00000007 C3                      	ret
-    82                                  
-    83                                  ; Does nothing
-    84                                  ql_empty_function:
-    85 00000008 C3                      	ret
-    86                                  
-    87                                  ; Flush output buffer
-    88                                  ; CONV: SYSTEM-V 64
-    89                                  ; USES:
-    90                                  ;	RAX
-    91                                  ;	RDI
-    92                                  ;	RSI
-    93                                  ;	RDX
-    94                                  ql_flush:
-    95 00000009 488B0425[00020000]      	mov rax, [ql_out_buffer_current_len]
-    96                                  
-    97                                  	; Omit empty flush)
-    98 00000011 4885C0                  	test rax, rax
-    99 00000014 7429                    	jz .end
-   100                                  
-   101                                  	; Display out buffer
-   102 00000016 B801000000              	mov rax, 1
-   103 0000001B BF01000000              	mov rdi, 1
-   104 00000020 48BE-                   	mov rsi, ql_out_buffer
-   104 00000022 [0000000000000000] 
-   105 0000002A 488B1425[00020000]      	mov rdx, [ql_out_buffer_current_len]
-   106 00000032 0F05                    	syscall
-   107                                  
-   108                                  	; Clear out buffer
-   109 00000034 4831C0                  	xor rax, rax
-   110 00000037 48890425[00020000]      	mov [ql_out_buffer_current_len], rax
-   111                                  
-   112                                  .end:
-   113 0000003F C3                      	ret
+    23                                  ; a b c d e f g h i j k l m n o p q r s t u v w x y z
+    24                                  ;   - - -                     -       -         -    
+    25                                  
+    26                                  ; Jump table. Maybe it's a bit..overweight.
+    27                                  ql_print_fmt__jump_table: ; b..x values
+    28 00000288 [7F00000000000000]      	dq ql_print_int_base2  ; b
+    29 00000290 [5400000000000000]      	dq ql_print_char       ; c
+    30 00000298 [F200000000000000]      	dq ql_print_int_base10 ; d
+    31 000002A0 [0800000000000000]      	dq ql_empty_function
+    32 000002A8 [9401000000000000]      	dq ql_print_float      ; f
+    33 000002B0 [0800000000000000]      	dq ql_empty_function
+    34 000002B8 [0800000000000000]      	dq ql_empty_function
+    35 000002C0 [0800000000000000]      	dq ql_empty_function
+    36 000002C8 [0800000000000000]      	dq ql_empty_function
+    37 000002D0 [0800000000000000]      	dq ql_empty_function
+    38 000002D8 [0800000000000000]      	dq ql_empty_function
+    39 000002E0 [0800000000000000]      	dq ql_empty_function
+    40 000002E8 [0800000000000000]      	dq ql_empty_function
+    41 000002F0 [B800000000000000]      	dq ql_print_int_base8  ; o
+    42 000002F8 [0800000000000000]      	dq ql_empty_function
+    43 00000300 [0800000000000000]      	dq ql_empty_function
+    44 00000308 [0800000000000000]      	dq ql_empty_function
+    45 00000310 [9F01000000000000]      	dq ql_print_str        ; s
+    46 00000318 [0800000000000000]      	dq ql_empty_function
+    47 00000320 [0800000000000000]      	dq ql_empty_function
+    48 00000328 [0800000000000000]      	dq ql_empty_function
+    49 00000330 [0800000000000000]      	dq ql_empty_function
+    50 00000338 [5001000000000000]      	dq ql_print_int_base16 ; x
+    51                                  
+    52                                  ; Load floating-point arguments from xmm registers.
+    53                                  ql_print_fmt_next_float__jump_table:
+    54 00000340 [8D02000000000000]      	dq ql_print_fmt_next_float.from_xmm0
+    55 00000348 [9402000000000000]      	dq ql_print_fmt_next_float.from_xmm1
+    56 00000350 [9B02000000000000]      	dq ql_print_fmt_next_float.from_xmm2
+    57 00000358 [A202000000000000]      	dq ql_print_fmt_next_float.from_xmm3
+    58 00000360 [A902000000000000]      	dq ql_print_fmt_next_float.from_xmm4
+    59 00000368 [B002000000000000]      	dq ql_print_fmt_next_float.from_xmm5
+    60 00000370 [B702000000000000]      	dq ql_print_fmt_next_float.from_xmm6
+    61 00000378 [BE02000000000000]      	dq ql_print_fmt_next_float.from_xmm7
+    62                                  
+    63                                  section .text
+    64                                  
+    65                                  ; Expose library functions
+    66                                  global ql_str_length
+    67                                  global ql_flush
+    68                                  global ql_print_char
+    69                                  global ql_print_fmt
+    70                                  global ql_print_str
+    71                                  global ql_exit
+    72                                  global ql_print_int_base2
+    73                                  global ql_print_int_base8
+    74                                  global ql_print_int_base10
+    75                                  global ql_print_int_base16
+    76                                  
+    77                                  ; Exit from program
+    78                                  ; CONV: SYSTEM-V 64
+    79                                  ; IN:
+    80                                  ;	exit code: RDI
+    81                                  ql_exit:
+    82 00000000 B83C000000              	mov rax, 60
+    83 00000005 0F05                    	syscall
+    84 00000007 C3                      	ret
+    85                                  
+    86                                  ; Does nothing
+    87                                  ql_empty_function:
+    88 00000008 C3                      	ret
+    89                                  
+    90                                  ; Flush output buffer
+    91                                  ; CONV: SYSTEM-V 64
+    92                                  ; USES:
+    93                                  ;	RAX (= 0)
+    94                                  ;	RDI (= 1)
+    95                                  ;	RSI (= ql_out_buffer)
+    96                                  ;	RDX (= *ql_out_buffer_current_len)
+    97                                  ql_flush:
+    98 00000009 488B0425[00020000]      	mov rax, [ql_out_buffer_current_len]
+    99                                  
+   100                                  	; Omit empty flush)
+   101 00000011 4885C0                  	test rax, rax
+   102 00000014 7429                    	jz .end
+   103                                  
+   104                                  	; Display out buffer
+   105 00000016 B801000000              	mov rax, 1
+   106 0000001B BF01000000              	mov rdi, 1
+   107 00000020 48BE-                   	mov rsi, ql_out_buffer
+   107 00000022 [0000000000000000] 
+   108 0000002A 488B1425[00020000]      	mov rdx, [ql_out_buffer_current_len]
+   109 00000032 0F05                    	syscall
+   110                                  
+   111                                  	; Clear out buffer
+   112 00000034 4831C0                  	xor rax, rax
+   113 00000037 48890425[00020000]      	mov [ql_out_buffer_current_len], rax
    114                                  
-   115                                  ; Calculate string length
-   116                                  ; CONV: SYSTEM-V 64
-   117                                  ; IN:
-   118                                  ;	string ptr - RDI
-   119                                  ; OUT:
-   120                                  ;	RAX (= string length)
-   121                                  ; USES:
-   122                                  ;	RSI (= 0)
-   123                                  ;	RDI (= _RDI)
-   124                                  ql_str_length:
-   125 00000040 4889F8                  	mov rax, rdi
-   126                                  
-   127                                  .continue:
-   128 00000043 48FFC7                  	inc rdi
-   129 00000046 408A37                  	mov sil, [rdi]
-   130 00000049 4084F6                  	test sil, sil
-   131 0000004C 75F5                    	jnz .continue
-   132                                  
-   133 0000004E 4897                    	xchg rdi, rax
-   134 00000050 4829F8                  	sub rax, rdi
-   135 00000053 C3                      	ret
-   136                                  
-   137                                  ; My putchar function
-   138                                  ; CONV: SYSTEM-V 64
-   139                                  ; IN:
-   140                                  ;	character to print - DIL
-   141                                  ; USES:
-   142                                  ;	R8
-   143                                  ;	DIL
-   144                                  ql_print_char:
-   145                                  	; bl - char to print - lower byte of RDI register.
-   146 00000054 4C8B0425[00020000]      	mov r8, [ql_out_buffer_current_len]
-   147                                  
-   148                                  	; Flush output buffer if it's filled
-   149 0000005C 4981F800020000          	cmp r8, ql_out_buffer_len
-   150 00000063 720B                    	jb .no_flush
-   151                                  
-   152                                  	; It's very infrequent, so it's ok to do this here
-   153 00000065 50                      	push rax
-   154 00000066 56                      	push rsi
-   155 00000067 52                      	push rdx
-   156 00000068 E89CFFFFFF              	call ql_flush
-   157 0000006D 5A                      	pop rdx
-   158 0000006E 5E                      	pop rsi
-   159 0000006F 58                      	pop rax
-   160                                  
-   161                                  .no_flush:
-   162 00000070 4188B8[00000000]        	mov [r8 + ql_out_buffer], dil
-   163 00000077 FF0425[00020000]        	inc dword [ql_out_buffer_current_len]
-   164 0000007E C3                      	ret
-   165                                  
-   166                                  ; Print binary integer
-   167                                  ; CONV: SYSTEM-V 64
-   168                                  ; IN:
-   169                                  ;	number to print - RDI
-   170                                  ; USES:
-   171                                  ;	RAX
-   172                                  ;	RDI
-   173                                  ;	RSI
-   174                                  ;	R8
-   175                                  ql_print_int_base2:
-   176 0000007F 4889F8                  	mov rax, rdi
-   177 00000082 48BF-                   	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
-   177 00000084 [8702000000000000] 
-   178                                  
-   179 0000008C 4885C0                  	test rax, rax
-   180 0000008F 750A                    	jnz .continue
+   115                                  .end:
+   116 0000003F C3                      	ret
+   117                                  
+   118                                  ; Calculate string length
+   119                                  ; CONV: SYSTEM-V 64
+   120                                  ; IN:
+   121                                  ;	string ptr - RDI
+   122                                  ; OUT:
+   123                                  ;	RAX (= string length)
+   124                                  ; USES:
+   125                                  ;	RSI (= 0)
+   126                                  ;	RDI (= _RDI)
+   127                                  ql_str_length:
+   128 00000040 4889F8                  	mov rax, rdi
+   129                                  
+   130                                  .continue:
+   131 00000043 48FFC7                  	inc rdi
+   132 00000046 408A37                  	mov sil, [rdi]
+   133 00000049 4084F6                  	test sil, sil
+   134 0000004C 75F5                    	jnz .continue
+   135                                  
+   136 0000004E 4897                    	xchg rdi, rax
+   137 00000050 4829F8                  	sub rax, rdi
+   138 00000053 C3                      	ret
+   139                                  
+   140                                  ; My putchar function
+   141                                  ; CONV: SYSTEM-V 64
+   142                                  ; IN:
+   143                                  ;	character to print - DIL
+   144                                  ; USES:
+   145                                  ;	R8
+   146                                  ;	DIL
+   147                                  ql_print_char:
+   148                                  	; bl - char to print - lower byte of RDI register.
+   149 00000054 4C8B0425[00020000]      	mov r8, [ql_out_buffer_current_len]
+   150                                  
+   151                                  	; Flush output buffer if it's filled
+   152 0000005C 4981F800020000          	cmp r8, ql_out_buffer_len
+   153 00000063 720B                    	jb .no_flush
+   154                                  
+   155                                  	; It's very infrequent, so it's ok to do this here
+   156 00000065 50                      	push rax
+   157 00000066 56                      	push rsi
+   158 00000067 52                      	push rdx
+   159 00000068 E89CFFFFFF              	call ql_flush
+   160 0000006D 5A                      	pop rdx
+   161 0000006E 5E                      	pop rsi
+   162 0000006F 58                      	pop rax
+   163                                  
+   164                                  .no_flush:
+   165 00000070 4188B8[00000000]        	mov [r8 + ql_out_buffer], dil
+   166 00000077 FF0425[00020000]        	inc dword [ql_out_buffer_current_len]
+   167 0000007E C3                      	ret
+   168                                  
+   169                                  ; Print binary integer
+   170                                  ; CONV: SYSTEM-V 64
+   171                                  ; IN:
+   172                                  ;	number to print - RDI
+   173                                  ; USES:
+   174                                  ;	RAX
+   175                                  ;	RDI
+   176                                  ;	RSI
+   177                                  ;	R8
+   178                                  ql_print_int_base2:
+   179 0000007F 4889F8                  	mov rax, rdi
+   180 00000082 48BF-                   	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
+   180 00000084 [8702000000000000] 
    181                                  
-   182                                  	; handle zero case
-   183 00000091 48FFCF                  	dec rdi
-   184 00000094 BF30000000              	mov rdi, 30h
-   185 00000099 EB19                    	jmp .end
-   186                                  
-   187                                  .continue:
-   188 0000009B 4889C6                  	mov rsi, rax
-   189 0000009E 4883E601                	and rsi, 1
-   190 000000A2 4883C630                	add rsi, 30h
-   191                                  
-   192 000000A6 48FFCF                  	dec rdi
-   193 000000A9 408837                  	mov [rdi], sil
+   182 0000008C 4885C0                  	test rax, rax
+   183 0000008F 7508                    	jnz .continue
+   184                                  
+   185                                  	; handle zero case
+   186 00000091 48FFCF                  	dec rdi
+   187 00000094 C60730                  	mov byte [rdi], 30h
+   188 00000097 EB19                    	jmp .end
+   189                                  
+   190                                  .continue:
+   191 00000099 4889C6                  	mov rsi, rax
+   192 0000009C 4883E601                	and rsi, 1
+   193 000000A0 4883C630                	add rsi, 30h
    194                                  
-   195 000000AC 48D1E8                  	shr rax, 1
-   196                                  
-   197 000000AF 4885C0                  	test rax, rax
-   198 000000B2 75E7                    	jnz .continue
+   195 000000A4 48FFCF                  	dec rdi
+   196 000000A7 408837                  	mov [rdi], sil
+   197                                  
+   198 000000AA 48D1E8                  	shr rax, 1
    199                                  
-   200                                  .end:
-   201 000000B4 E83A010000              	call ql_print_str
-   202 000000B9 C3                      	ret
-   203                                  
-   204                                  ; Print binary integer
-   205                                  ; CONV: SYSTEM-V 64
-   206                                  ; IN:
-   207                                  ;	number to print - RDI
-   208                                  ; USES:
-   209                                  ;	RAX
-   210                                  ;	RDI
-   211                                  ;	RSI
-   212                                  ;	R8
-   213                                  ql_print_int_base8:
-   214 000000BA 4889F8                  	mov rax, rdi
-   215 000000BD 48BF-                   	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
-   215 000000BF [8702000000000000] 
-   216                                  
-   217 000000C7 4885C0                  	test rax, rax
-   218 000000CA 750A                    	jnz .continue
+   200 000000AD 4885C0                  	test rax, rax
+   201 000000B0 75E7                    	jnz .continue
+   202                                  
+   203                                  .end:
+   204 000000B2 E8E8000000              	call ql_print_str
+   205 000000B7 C3                      	ret
+   206                                  
+   207                                  ; Print binary integer
+   208                                  ; CONV: SYSTEM-V 64
+   209                                  ; IN:
+   210                                  ;	number to print - RDI
+   211                                  ; USES:
+   212                                  ;	RAX
+   213                                  ;	RDI
+   214                                  ;	RSI
+   215                                  ;	R8
+   216                                  ql_print_int_base8:
+   217 000000B8 4889F8                  	mov rax, rdi
+   218 000000BB 48BF-                   	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
+   218 000000BD [8702000000000000] 
    219                                  
-   220                                  	; handle zero case
-   221 000000CC 48FFCF                  	dec rdi
-   222 000000CF BF30000000              	mov rdi, 30h
-   223 000000D4 EB1A                    	jmp .end
-   224                                  
-   225                                  .continue:
-   226 000000D6 4889C6                  	mov rsi, rax
-   227 000000D9 4883E607                	and rsi, 7
-   228 000000DD 4883C630                	add rsi, 30h
-   229                                  
-   230 000000E1 48FFCF                  	dec rdi
-   231 000000E4 408837                  	mov [rdi], sil
+   220 000000C5 4885C0                  	test rax, rax
+   221 000000C8 7508                    	jnz .continue
+   222                                  
+   223                                  	; handle zero case
+   224 000000CA 48FFCF                  	dec rdi
+   225 000000CD C60730                  	mov byte [rdi], 30h
+   226 000000D0 EB1A                    	jmp .end
+   227                                  
+   228                                  .continue:
+   229 000000D2 4889C6                  	mov rsi, rax
+   230 000000D5 4883E607                	and rsi, 7
+   231 000000D9 4883C630                	add rsi, 30h
    232                                  
-   233 000000E7 48C1E803                	shr rax, 3
-   234                                  
-   235 000000EB 4885C0                  	test rax, rax
-   236 000000EE 75E6                    	jnz .continue
+   233 000000DD 48FFCF                  	dec rdi
+   234 000000E0 408837                  	mov [rdi], sil
+   235                                  
+   236 000000E3 48C1E803                	shr rax, 3
    237                                  
-   238                                  .end:
-   239 000000F0 E8FE000000              	call ql_print_str
-   240 000000F5 C3                      	ret
-   241                                  
-   242                                  ; Print binary integer
-   243                                  ; CONV: SYSTEM-V 64
-   244                                  ; IN:
-   245                                  ;	number to print - RDI
-   246                                  ; USES:
-   247                                  ;	RAX
-   248                                  ;	RDX
-   249                                  ;	RDI
-   250                                  ;	RSI
-   251                                  ;	R8
-   252                                  ql_print_int_base10:
-   253 000000F6 4831D2                  	xor rdx, rdx
-   254                                  
-   255 000000F9 57                      	push rdi
-   256                                  
-   257 000000FA 4889F8                  	mov rax, rdi
-   258 000000FD 48BF-                   	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
-   258 000000FF [8702000000000000] 
-   259                                  
-   260 00000107 4885C0                  	test rax, rax
-   261 0000010A 7508                    	jnz .nonzero
-   262                                  
-   263 0000010C 48FFCF                  	dec rdi
-   264 0000010F C60730                  	mov byte [rdi], 0x30
-   265 00000112 EB3A                    	jmp .end
-   266                                  
-   267                                  .nonzero:
+   238 000000E7 4885C0                  	test rax, rax
+   239 000000EA 75E6                    	jnz .continue
+   240                                  
+   241                                  .end:
+   242 000000EC E8AE000000              	call ql_print_str
+   243 000000F1 C3                      	ret
+   244                                  
+   245                                  ; Print binary integer
+   246                                  ; CONV: SYSTEM-V 64
+   247                                  ; IN:
+   248                                  ;	number to print - RDI
+   249                                  ; USES:
+   250                                  ;	RAX
+   251                                  ;	RDX
+   252                                  ;	RDI
+   253                                  ;	RSI
+   254                                  ;	R8
+   255                                  ql_print_int_base10:
+   256 000000F2 4831D2                  	xor rdx, rdx
+   257                                  
+   258 000000F5 4889F8                  	mov rax, rdi
+   259 000000F8 48BF-                   	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
+   259 000000FA [8702000000000000] 
+   260                                  
+   261 00000102 4885C0                  	test rax, rax
+   262 00000105 7508                    	jnz .nonzero
+   263                                  
+   264                                  	; Write '0' character and exit
+   265 00000107 48FFCF                  	dec rdi
+   266 0000010A C60730                  	mov byte [rdi], 0x30
+   267 0000010D EB3B                    	jmp .end
    268                                  
-   269                                  	; Negate rax if it is negative
-   270 00000114 4883F800                	cmp rax, 0
-   271 00000118 7F03                    	jg .continue
-   272 0000011A 48F7D8                  	neg rax
+   269                                  .nonzero:
+   270                                  
+   271                                  	; Save RAX to decide if '-' character is needed
+   272 0000010F 50                      	push rax
    273                                  
-   274                                  .continue:
-   275 0000011D 41B80A000000            	mov r8, 0xA
-   276                                  
-   277 00000123 4889C6                  	mov rsi, rax
-   278 00000126 49F7F8                  	idiv r8
-   279 00000129 49F7E8                  	imul r8
-   280 0000012C 4829C6                  	sub rsi, rax
-   281 0000012F 49F7F8                  	idiv r8
-   282                                  
-   283 00000132 4883C630                	add rsi, 0x30
-   284                                  
-   285 00000136 48FFCF                  	dec rdi
-   286 00000139 408837                  	mov [rdi], sil
+   274                                  	; Negate rax if it is negative
+   275 00000110 4883F800                	cmp rax, 0
+   276 00000114 7F03                    	jg .continue
+   277 00000116 48F7D8                  	neg rax
+   278                                  
+   279                                  .continue:
+   280 00000119 41B80A000000            	mov r8, 0xA
+   281                                  
+   282 0000011F 4889C6                  	mov rsi, rax
+   283 00000122 49F7F8                  	idiv r8
+   284 00000125 49F7E8                  	imul r8
+   285 00000128 4829C6                  	sub rsi, rax
+   286 0000012B 49F7F8                  	idiv r8
    287                                  
-   288                                  .test:
-   289 0000013C 4885C0                  	test rax, rax
-   290 0000013F 75DC                    	jnz .continue
-   291                                  
-   292 00000141 58                      	pop rax
-   293 00000142 4883F800                	cmp rax, 0
-   294 00000146 7D06                    	jge .end
-   295                                  
-   296                                  	; Write '-' character
-   297 00000148 48FFCF                  	dec rdi
-   298 0000014B C6072D                  	mov byte [rdi], 0x2D
-   299                                  
-   300                                  .end:
-   301                                  	; Print string in r10
-   302 0000014E E8A0000000              	call ql_print_str
-   303 00000153 C3                      	ret
-   304                                  
-   305                                  ; Print binary integer
-   306                                  ; CONV: SYSTEM-V 64
-   307                                  ; IN:
-   308                                  ;	number to print - RDI
-   309                                  ; USES:
-   310                                  ;	RAX
-   311                                  ;	RDI
-   312                                  ;	RSI
-   313                                  ;	R8
-   314                                  ql_print_int_base16:
-   315 00000154 4889F8                  	mov rax, rdi
-   316 00000157 48BF-                   	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
-   316 00000159 [8702000000000000] 
-   317                                  
-   318 00000161 4885C0                  	test rax, rax
-   319 00000164 750A                    	jnz .continue
-   320                                  
-   321                                  	; handle zero case
-   322 00000166 48FFCF                  	dec rdi
-   323 00000169 BF30000000              	mov rdi, 30h
-   324 0000016E EB24                    	jmp .end
-   325                                  
-   326                                  .continue:
-   327 00000170 4889C6                  	mov rsi, rax
-   328                                  
-   329                                  	; Perform bit more clever
-   330 00000173 4883E60F                	and rsi, 0xF
+   288 0000012E 4883C630                	add rsi, 0x30
+   289                                  
+   290 00000132 48FFCF                  	dec rdi
+   291 00000135 408837                  	mov [rdi], sil
+   292                                  
+   293                                  .test:
+   294 00000138 4885C0                  	test rax, rax
+   295 0000013B 75DC                    	jnz .continue
+   296                                  
+   297                                  	; Load RDI to write '-' character
+   298 0000013D 58                      	pop rax
+   299 0000013E 4883F800                	cmp rax, 0
+   300 00000142 7D06                    	jge .end
+   301                                  
+   302                                  	; Write '-' character
+   303 00000144 48FFCF                  	dec rdi
+   304 00000147 C6072D                  	mov byte [rdi], 0x2D
+   305                                  
+   306                                  .end:
+   307                                  	; Print string
+   308 0000014A E850000000              	call ql_print_str
+   309 0000014F C3                      	ret
+   310                                  
+   311                                  ; Print binary integer
+   312                                  ; CONV: SYSTEM-V 64
+   313                                  ; IN:
+   314                                  ;	number to print - RDI
+   315                                  ; USES:
+   316                                  ;	RAX
+   317                                  ;	RDI
+   318                                  ;	RSI
+   319                                  ;	R8
+   320                                  ql_print_int_base16:
+   321 00000150 4889F8                  	mov rax, rdi
+   322 00000153 48BF-                   	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
+   322 00000155 [8702000000000000] 
+   323                                  
+   324 0000015D 4885C0                  	test rax, rax
+   325 00000160 7508                    	jnz .continue
+   326                                  
+   327                                  	; handle zero case
+   328 00000162 48FFCF                  	dec rdi
+   329 00000165 C60730                  	mov byte [rdi], 30h
+   330 00000168 EB24                    	jmp .end
    331                                  
-   332 00000177 4883FE0A                	cmp rsi, 0xA
-   333 0000017B 7C04                    	jl .number
-   334 0000017D 4883C607                	add rsi, 0x7
-   335                                  .number:
-   336 00000181 4883C630                	add rsi, 30h
+   332                                  .continue:
+   333 0000016A 4889C6                  	mov rsi, rax
+   334                                  
+   335                                  	; Perform bit more clever
+   336 0000016D 4883E60F                	and rsi, 0xF
    337                                  
-   338 00000185 48FFCF                  	dec rdi
-   339 00000188 408837                  	mov [rdi], sil
-   340                                  
-   341 0000018B 48C1E804                	shr rax, 4
-   342 0000018F 4885C0                  	test rax, rax
-   343 00000192 75DC                    	jnz .continue
-   344                                  
-   345                                  .end:
-   346 00000194 E85A000000              	call ql_print_str
-   347 00000199 C3                      	ret
-   348                                  
-   349                                  ; Print float (alias to ql_print_int_base16 now)
-   350                                  ; IN:
-   351                                  ;	number to print - rdi
-   352                                  ; TODO:
-   353                                  ;	BUILD ACTUAL FLOAT PRINTING FUNCTION
-   354                                  ql_print_float:
-   355 0000019A 66480F6EC7              	movq xmm0, rdi
-   356 0000019F E8B0FFFFFF              	call ql_print_int_base16
-   357 000001A4 C3                      	ret
-   358                                  
-   359                                  ; Print string (new implementation)
-   360                                  ; CONV: SYSTEM-V 64
-   361                                  ; IN:
-   362                                  ;	string to print (null-terminated) - RDI
-   363                                  ; USES:
-   364                                  ;	???
-   365                                  ql_print_str_2:
-   366                                  	; Calculate string length
-   367 000001A5 E896FEFFFF              	call ql_str_length
-   368                                  
-   369                                  	; Check if input string is longer, than input buffer. In this case, it's better to output it with systemcall only.
-   370 000001AA 483D00020000            	cmp rax, ql_out_buffer_len
-   371 000001B0 7D29                    	jge .very_long_str
-   372                                  
-   373                                  	; Read rest length of current buffer
-   374 000001B2 BB00020000              	mov rbx, ql_out_buffer_len
-   375 000001B7 482B1C25[00020000]      	sub rbx, [ql_out_buffer_current_len]
-   376                                  
-   377                                  	; Compare output length with rbx
-   378 000001BF 4839C3                  	cmp rbx, rax
-   379                                  
-   380                                  	; If rest of buffer is equal
-   381 000001C2 7F00                    	jg .write
-   382                                  
-   383                                  .write:
-   384                                  
-   385 000001C4 4831C3                  	xor rbx, rax
-   386 000001C7 7511                    	jnz .end
-   387                                  
-   388                                  	; Fill
-   389 000001C9 48C70425[00020000]-     	mov qword [ql_out_buffer_current_len], ql_out_buffer_len
-   389 000001D1 00020000           
-   390                                  	; Flush current buffer
-   391 000001D5 E82FFEFFFF              	call ql_flush
+   338 00000171 4883FE0A                	cmp rsi, 0xA
+   339 00000175 7C04                    	jl .number
+   340 00000177 4883C607                	add rsi, 0x7
+   341                                  .number:
+   342 0000017B 4883C630                	add rsi, 30h
+   343                                  
+   344 0000017F 48FFCF                  	dec rdi
+   345 00000182 408837                  	mov [rdi], sil
+   346                                  
+   347 00000185 48C1E804                	shr rax, 4
+   348 00000189 4885C0                  	test rax, rax
+   349 0000018C 75DC                    	jnz .continue
+   350                                  
+   351                                  .end:
+   352 0000018E E80C000000              	call ql_print_str
+   353 00000193 C3                      	ret
+   354                                  
+   355                                  ; Print float (alias to ql_print_int_base16 now)
+   356                                  ; IN:
+   357                                  ;	number to print - rdi
+   358                                  ; TODO:
+   359                                  ;	BUILD ACTUAL FLOAT PRINTING FUNCTION
+   360                                  ql_print_float:
+   361 00000194 66480F6EC7              	movq xmm0, rdi
+   362 00000199 E8B2FFFFFF              	call ql_print_int_base16
+   363 0000019E C3                      	ret
+   364                                  
+   365                                  ; Print string (new new implementation)
+   366                                  ; CONV: SYSTEM-V 64
+   367                                  ; IN:
+   368                                  ;	string to print (null-terminated) - RDI
+   369                                  ; USES:
+   370                                  ;	RSI
+   371                                  ;	RDI
+   372                                  ;	RAX
+   373                                  ;	RDX
+   374                                  ql_print_str:
+   375                                  	; Calculate string length
+   376 0000019F E89CFEFFFF              	call ql_str_length
+   377                                  
+   378                                  	; Get out buffer rest count
+   379 000001A4 BE00040000              	mov rsi, ql_out_buffer_len * 2
+   380 000001A9 482B3425[00020000]      	sub rsi, [ql_out_buffer_current_len]
+   381                                  
+   382                                  	; Check if string is TOO long
+   383 000001B1 4839F0                  	cmp rax, rsi
+   384 000001B4 0F838E000000            	jae .very_long_str
+   385                                  
+   386                                  	; rsi = out_buffer_len - out_buffer_current_len
+   387 000001BA 4881EE00020000          	sub rsi, ql_out_buffer_len
+   388                                  
+   389                                  	; Test if the string can be fully written to out buffer
+   390 000001C1 4839F0                  	cmp rax, rsi
+   391 000001C4 732A                    	jae .long_str
    392                                  
-   393                                  .end:
-   394 000001DA C3                      	ret
-   395                                  
-   396                                  .very_long_str:
-   397                                  	; TODO: Save registers
-   398                                  
-   399                                  	; Flush input buffer
-   400 000001DB E829FEFFFF              	call ql_flush
-   401                                  
-   402                                  	; Display input string with systemcall only.
-   403 000001E0 4889C2                  	mov rdx, rax
-   404 000001E3 4889FE                  	mov rsi, rdi
-   405 000001E6 B801000000              	mov rax, 1
-   406 000001EB BF01000000              	mov rdi, 1
-   407 000001F0 0F05                    	syscall
-   408                                  
-   409 000001F2 C3                      	ret
-   410                                  
-   411                                  ; Print strnig
-   412                                  ; CONV: SYSTEM-V 64
-   413                                  ; IN:
-   414                                  ;	string to print (null-terminated) - RDI
-   415                                  ; USES:
-   416                                  ;	RSI
-   417                                  ;	RDI
-   418                                  ;	R8
-   419                                  ; TODO:
-   420                                  ;	REWRITE THIS SH*T
-   421                                  ql_print_str:
-   422                                  	; RAX = string length
-   423 000001F3 E848FEFFFF              	call ql_str_length
+   393                                  .short_str:
+   394 000001C6 48BE-                   	mov rsi, ql_out_buffer
+   394 000001C8 [0000000000000000] 
+   395 000001D0 48033425[00020000]      	add rsi, [ql_out_buffer_current_len]
+   396 000001D8 48010425[00020000]      	add [ql_out_buffer_current_len], rax
+   397                                  
+   398                                  .short_loop_start:
+   399 000001E0 8A17                    	mov dl, [rdi]
+   400 000001E2 48FFC7                  	inc rdi
+   401 000001E5 8816                    	mov [rsi], dl
+   402 000001E7 48FFC6                  	inc rsi
+   403                                  
+   404                                  .short_test:
+   405 000001EA 48FFC8                  	dec rax
+   406 000001ED 75F1                    	jnz .short_loop_start
+   407                                  
+   408 000001EF C3                      	ret
+   409                                  
+   410                                  .long_str: ; Write start, flush, write rest
+   411 000001F0 48BE-                   	mov rsi, ql_out_buffer
+   411 000001F2 [0000000000000000] 
+   412 000001FA 48033425[00020000]      	add rsi, [ql_out_buffer_current_len]
+   413                                  
+   414                                  	; Fill out buffer
+   415                                  .long_loop_start:
+   416 00000202 8A17                    	mov dl, [rdi]
+   417 00000204 48FFC7                  	inc rdi
+   418 00000207 8816                    	mov [rsi], dl
+   419 00000209 48FFC6                  	inc rsi
+   420                                  
+   421                                  .long_test:
+   422 0000020C 4881FE[00020000]        	cmp rsi, ql_out_buffer_end
+   423 00000213 72ED                    	jb .long_loop_start
    424                                  
-   425 000001F8 4889FE                  	mov rsi, rdi
-   426 000001FB EB05                    	jmp .test
-   427                                  
-   428                                  .continue:
-   429 000001FD E852FEFFFF              	call ql_print_char
-   430                                  .test:
-   431 00000202 408A3E                  	mov dil, [rsi]
-   432 00000205 48FFC6                  	inc rsi
-   433 00000208 4084FF                  	test dil, dil
-   434 0000020B 75F0                    	jnz .continue
-   435                                  
-   436 0000020D C3                      	ret
-   437                                  
-   438                                  ; Get next float-point parameter
-   439                                  ; IN:
-   440                                  ;	float index - R9
-   441                                  ; OUT:
-   442                                  ;	float value - RDI
-   443                                  ql_print_fmt_next_float:
-   444 0000020E 4983F908                	cmp r9, 8
-   445 00000212 7D40                    	jge .from_stack
-   446                                  
-   447 00000214 42FF24CD[40030000]      	jmp [r9 * 8 + ql_print_fmt_next_float__jump_table]
-   448                                  .from_xmm0:
-   449 0000021C 66480F7EC7              	movq rdi, xmm0
-   450 00000221 EB42                    	jmp .end
-   451                                  .from_xmm1:
-   452 00000223 66480F7ECF              	movq rdi, xmm1
-   453 00000228 EB3B                    	jmp .end
-   454                                  .from_xmm2:
-   455 0000022A 66480F7ED7              	movq rdi, xmm2
-   456 0000022F EB34                    	jmp .end
-   457                                  .from_xmm3:
-   458 00000231 66480F7EDF              	movq rdi, xmm3
-   459 00000236 EB2D                    	jmp .end
-   460                                  .from_xmm4:
-   461 00000238 66480F7EE7              	movq rdi, xmm4
-   462 0000023D EB26                    	jmp .end
-   463                                  .from_xmm5:
-   464 0000023F 66480F7EEF              	movq rdi, xmm5
-   465 00000244 EB1F                    	jmp .end
-   466                                  .from_xmm6:
-   467 00000246 66480F7EF7              	movq rdi, xmm6
-   468 0000024B EB18                    	jmp .end
-   469                                  .from_xmm7:
-   470 0000024D 66480F7EFF              	movq rdi, xmm7
-   471 00000252 EB11                    	jmp .end
-   472                                  
-   473                                  .from_stack:
-   474 00000254 49C1E103                	shl r9, 3
-   475 00000258 4889E7                  	mov rdi, rsp
-   476 0000025B 4C01CF                  	add rdi, r9
-   477 0000025E 49C1E903                	shr r9, 3
-   478                                  	; load froms tack
-   479 00000262 488B3F                  	mov rdi, [rdi]
-   480                                  	
-   481                                  .end:
-   482                                  
-   483 00000265 C3                      	ret
-   484                                  
-   485                                  ; My formatted print function
-   486                                  ; CONV: SYSTEM-V
-   487                                  ; IN:
-   488                                  ;	format string - rdi
-   489                                  ; USES:
-   490                                  ;	...
-   491                                  ql_print_fmt:
-   492                                  	; Save stack value
-   493 00000266 4989E2                  	mov r10, rsp
-   494                                  
-   495                                  	; Load return pointer from stack
-   496 00000269 58                      	pop rax
-   497                                  
-   498                                  	; Write registers to stack
-   499 0000026A 4151                    	push r9
-   500 0000026C 4150                    	push r8
-   501 0000026E 51                      	push rcx
-   502 0000026F 52                      	push rdx
-   503 00000270 56                      	push rsi
-   504                                  
-   505                                  	; Save return pointer and initial stack address
-   506 00000271 4152                    	push r10
-   507 00000273 50                      	push rax
-   508                                  
-   509                                  	; R9 - float point index
-   510 00000274 4D31C9                  	xor r9, r9
-   511                                  
-   512                                  	; R10 - string pointer
-   513 00000277 4989FA                  	mov r10, rdi
-   514                                  
-   515                                  	; R11 - current argument pointer
-   516 0000027A 4989E3                  	mov r11, rsp
-   517 0000027D 4983C308                	add r11, 8
-   518                                  
-   519                                  .main_loop:
-   520                                  	; AL = *R10
-   521 00000281 418A02                  	mov al, [r10]
-   522 00000284 49FFC2                  	inc r10
-   523                                  
-   524                                  	; Test for stirng end
-   525 00000287 84C0                    	test al, al
-   526 00000289 7445                    	jz .end
-   527                                  
-   528                                  	; Go to '%' handler.
-   529 0000028B 3C25                    	cmp al, 25h
-   530 0000028D 740A                    	je .handle_fmt
-   531                                  
-   532                                  .print_char:
+   425                                  	; Compute rest length
+   426 00000215 480500020000            	add rax, ql_out_buffer_len
+   427 0000021B 482B0425[00020000]      	sub rax, [ql_out_buffer_current_len]
+   428                                  
+   429                                  	; Write current len
+   430 00000223 48C70425[00020000]-     	mov qword [ql_out_buffer_current_len], ql_out_buffer_len
+   430 0000022B 00020000           
+   431                                  
+   432                                  	; Flush
+   433 0000022F 50                      	push rax
+   434 00000230 57                      	push rdi
+   435 00000231 E8D3FDFFFF              	call ql_flush
+   436 00000236 5F                      	pop rdi
+   437 00000237 58                      	pop rax
+   438                                  
+   439                                  	; Write rest
+   440                                  .long_end_start:
+   441 00000238 8A17                    	mov dl, [rdi]
+   442 0000023A 48FFC7                  	inc rdi
+   443 0000023D 8816                    	mov [rsi], dl
+   444 0000023F 48FFC6                  	inc rsi
+   445                                  .long_end_test:
+   446 00000242 48FFC8                  	dec rax
+   447 00000245 75F1                    	jnz .long_end_start
+   448                                  
+   449                                  	; Exit
+   450 00000247 C3                      	ret
+   451                                  
+   452                                  .very_long_str: ; Flush, write by systemcall
+   453                                  
+   454                                  	; Flush string buffer
+   455 00000248 50                      	push rax
+   456 00000249 57                      	push rdi
+   457 0000024A E8BAFDFFFF              	call ql_flush
+   458 0000024F 5F                      	pop rdi
+   459 00000250 58                      	pop rax
+   460                                  
+   461                                  	; Write string by systemcall
+   462 00000251 4889C2                  	mov rdx, rax ; Buffer length
+   463 00000254 4889FE                  	mov rsi, rdi ; Buffer pointer
+   464 00000257 BF01000000              	mov rdi, 1   ; File descriptor
+   465 0000025C B801000000              	mov rax, 1   ; Systemcall index
+   466 00000261 0F05                    	syscall
+   467                                  
+   468 00000263 C3                      	ret
+   469                                  
+   470                                  ; Print strnig
+   471                                  ; CONV: SYSTEM-V 64
+   472                                  ; IN:
+   473                                  ;	string to print (null-terminated) - RDI
+   474                                  ; USES:
+   475                                  ;	RSI
+   476                                  ;	RDI
+   477                                  ;	R8
+   478                                  ;	RAX
+   479                                  ;	RDX
+   480                                  ; TODO:
+   481                                  ;	REWRITE THIS SH*T
+   482                                  ql_print_str_old:
+   483                                  	; RAX = string length
+   484 00000264 E8D7FDFFFF              	call ql_str_length
+   485                                  
+   486 00000269 4889FE                  	mov rsi, rdi
+   487 0000026C EB05                    	jmp .test
+   488                                  
+   489                                  .continue:
+   490 0000026E E8E1FDFFFF              	call ql_print_char
+   491                                  .test:
+   492 00000273 408A3E                  	mov dil, [rsi]
+   493 00000276 48FFC6                  	inc rsi
+   494 00000279 4084FF                  	test dil, dil
+   495 0000027C 75F0                    	jnz .continue
+   496                                  
+   497 0000027E C3                      	ret
+   498                                  
+   499                                  ; Get next float-point parameter
+   500                                  ; IN:
+   501                                  ;	float index - R9
+   502                                  ; OUT:
+   503                                  ;	float value - RDI
+   504                                  ql_print_fmt_next_float:
+   505 0000027F 4983F908                	cmp r9, 8
+   506 00000283 7D40                    	jge .from_stack
+   507                                  
+   508 00000285 42FF24CD[40030000]      	jmp [r9 * 8 + ql_print_fmt_next_float__jump_table]
+   509                                  .from_xmm0:
+   510 0000028D 66480F7EC7              	movq rdi, xmm0
+   511 00000292 EB42                    	jmp .end
+   512                                  .from_xmm1:
+   513 00000294 66480F7ECF              	movq rdi, xmm1
+   514 00000299 EB3B                    	jmp .end
+   515                                  .from_xmm2:
+   516 0000029B 66480F7ED7              	movq rdi, xmm2
+   517 000002A0 EB34                    	jmp .end
+   518                                  .from_xmm3:
+   519 000002A2 66480F7EDF              	movq rdi, xmm3
+   520 000002A7 EB2D                    	jmp .end
+   521                                  .from_xmm4:
+   522 000002A9 66480F7EE7              	movq rdi, xmm4
+   523 000002AE EB26                    	jmp .end
+   524                                  .from_xmm5:
+   525 000002B0 66480F7EEF              	movq rdi, xmm5
+   526 000002B5 EB1F                    	jmp .end
+   527                                  .from_xmm6:
+   528 000002B7 66480F7EF7              	movq rdi, xmm6
+   529 000002BC EB18                    	jmp .end
+   530                                  .from_xmm7:
+   531 000002BE 66480F7EFF              	movq rdi, xmm7
+   532 000002C3 EB11                    	jmp .end
    533                                  
-   534                                  	; Further optimization?
-   535 0000028F 4088C7                  	mov dil, al
-   536 00000292 E8BDFDFFFF              	call ql_print_char
-   537                                  
-   538                                  	; Print character
-   539 00000297 EBE8                    	jmp .main_loop
-   540                                  
-   541                                  .handle_fmt:
-   542                                  
-   543                                  	; %c, %s, %d, %x, %o, %b, %%
-   544                                  	; a b c d e f g h i j k l m n o p q r s t u v w x y z
-   545                                  	;   - - -                     -       -         -    
-   546                                  	; b..x jump table
-   547                                  
-   548                                  	; Load character into RAX
-   549 00000299 4831C0                  	xor rax, rax
-   550 0000029C 418A02                  	mov al, [r10]
-   551 0000029F 49FFC2                  	inc r10
-   552                                  
-   553                                  	; Test for lack of next character
-   554 000002A2 84C0                    	test al, al
-   555 000002A4 742A                    	jz .end
-   556                                  
-   557                                  	; Test for "%%" combination
-   558 000002A6 3C25                    	cmp al, 0x25
-   559 000002A8 74E5                    	je .print_char
-   560                                  
-   561                                  	; Test for validness to be used with jump table
-   562 000002AA 3C62                    	cmp al, 0x62
-   563 000002AC 72D3                    	jb .main_loop
-   564 000002AE 3C78                    	cmp al, 0x78
-   565 000002B0 77CF                    	ja .main_loop
-   566                                  
-   567 000002B2 3C66                    	cmp al, 0x66
-   568 000002B4 750A                    	jne .load_arg_stack
+   534                                  .from_stack:
+   535 000002C5 49C1E103                	shl r9, 3
+   536 000002C9 4889E7                  	mov rdi, rsp
+   537 000002CC 4C01CF                  	add rdi, r9
+   538 000002CF 49C1E903                	shr r9, 3
+   539                                  	; load froms tack
+   540 000002D3 488B3F                  	mov rdi, [rdi]
+   541                                  	
+   542                                  .end:
+   543                                  
+   544 000002D6 C3                      	ret
+   545                                  
+   546                                  ; My formatted print function
+   547                                  ; CONV: SYSTEM-V
+   548                                  ; IN:
+   549                                  ;	format string - rdi
+   550                                  ; USES:
+   551                                  ;	...
+   552                                  ql_print_fmt:
+   553                                  	; Save stack value
+   554 000002D7 4989E2                  	mov r10, rsp
+   555                                  
+   556                                  	; Load return pointer from stack
+   557 000002DA 58                      	pop rax
+   558                                  
+   559                                  	; Write registers to stack
+   560 000002DB 4151                    	push r9
+   561 000002DD 4150                    	push r8
+   562 000002DF 51                      	push rcx
+   563 000002E0 52                      	push rdx
+   564 000002E1 56                      	push rsi
+   565                                  
+   566                                  	; Save return pointer and initial stack address
+   567 000002E2 4152                    	push r10
+   568 000002E4 50                      	push rax
    569                                  
-   570                                  	; Load next float
-   571 000002B6 E853FFFFFF              	call ql_print_fmt_next_float
-   572 000002BB 49FFC1                  	inc r9
-   573                                  
-   574 000002BE EB07                    	jmp .call
+   570                                  	; R9 - float point index
+   571 000002E5 4D31C9                  	xor r9, r9
+   572                                  
+   573                                  	; R10 - string pointer
+   574 000002E8 4989FA                  	mov r10, rdi
    575                                  
-   576                                  .load_arg_stack:
-   577                                  	; Load next argument into rcx
-   578 000002C0 4983C308                	add r11, 8
-   579 000002C4 498B3B                  	mov rdi, [r11]
-   580                                  .call:
-   581                                  
-   582                                  	; Use jump table!
-   583 000002C7 FF14C5[78FFFFFF]        	call [rax * 8 + ql_print_fmt__jump_table - 62h * 8]
-   584 000002CE EBB1                    	jmp .main_loop
-   585                                  
-   586                                  .end:
-   587                                  
-   588                                  	; Restore stack
-   589 000002D0 58                      	pop rax
-   590 000002D1 5C                      	pop rsp
-   591 000002D2 50                      	push rax
+   576                                  	; R11 - current argument pointer
+   577 000002EB 4989E3                  	mov r11, rsp
+   578 000002EE 4983C308                	add r11, 8
+   579                                  
+   580                                  .main_loop:
+   581                                  	; AL = *R10
+   582 000002F2 418A02                  	mov al, [r10]
+   583 000002F5 49FFC2                  	inc r10
+   584                                  
+   585                                  	; Test for stirng end
+   586 000002F8 84C0                    	test al, al
+   587 000002FA 7445                    	jz .end
+   588                                  
+   589                                  	; Go to '%' handler.
+   590 000002FC 3C25                    	cmp al, 25h
+   591 000002FE 740A                    	je .handle_fmt
    592                                  
-   593 000002D3 C3                      	ret
+   593                                  .print_char:
+   594                                  
+   595                                  	; Further optimization?
+   596 00000300 4088C7                  	mov dil, al
+   597 00000303 E84CFDFFFF              	call ql_print_char
+   598                                  
+   599                                  	; Continue
+   600 00000308 EBE8                    	jmp .main_loop
+   601                                  
+   602                                  .handle_fmt:
+   603                                  
+   604                                  	; %c, %s, %d, %x, %o, %b, %%
+   605                                  	; a b c d e f g h i j k l m n o p q r s t u v w x y z
+   606                                  	;   - - -                     -       -         -    
+   607                                  	; b..x jump table
+   608                                  
+   609                                  	; Load character into RAX
+   610 0000030A 4831C0                  	xor rax, rax
+   611 0000030D 418A02                  	mov al, [r10]
+   612 00000310 49FFC2                  	inc r10
+   613                                  
+   614                                  	; Test for lack of next character
+   615 00000313 84C0                    	test al, al
+   616 00000315 742A                    	jz .end
+   617                                  
+   618                                  	; Test for "%%" combination
+   619 00000317 3C25                    	cmp al, 0x25
+   620 00000319 74E5                    	je .print_char
+   621                                  
+   622                                  	; Check for jump table usability
+   623 0000031B 3C62                    	cmp al, 0x62
+   624 0000031D 72D3                    	jb .main_loop
+   625 0000031F 3C78                    	cmp al, 0x78
+   626 00000321 77CF                    	ja .main_loop
+   627                                  
+   628 00000323 3C66                    	cmp al, 0x66
+   629 00000325 750A                    	jne .load_arg_stack
+   630                                  
+   631                                  	; Load next float
+   632 00000327 E853FFFFFF              	call ql_print_fmt_next_float
+   633 0000032C 49FFC1                  	inc r9
+   634                                  
+   635 0000032F EB07                    	jmp .call
+   636                                  
+   637                                  .load_arg_stack:
+   638                                  	; Load next argument into rcx
+   639 00000331 4983C308                	add r11, 8
+   640 00000335 498B3B                  	mov rdi, [r11]
+   641                                  .call:
+   642                                  
+   643                                  	; Use jump table!
+   644 00000338 FF14C5[78FFFFFF]        	call [rax * 8 + ql_print_fmt__jump_table - 62h * 8]
+   645 0000033F EBB1                    	jmp .main_loop
+   646                                  
+   647                                  .end:
+   648                                  
+   649                                  	; Restore stack
+   650 00000341 58                      	pop rax
+   651 00000342 5C                      	pop rsp
+   652 00000343 50                      	push rax
+   653                                  
+   654 00000344 C3                      	ret

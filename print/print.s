@@ -8,13 +8,16 @@ section .data
 ; Buffer contents
 ql_out_buffer: times ql_out_buffer_len db 0
 
+; Buffer end pointer
+ql_out_buffer_end:
+
 ; Current buffer length (< ql_out_buffer_len)
 ql_out_buffer_current_len: dq 0
 
 ; Length of number print buffer
 %define ql_number_print_buffer_len 128
 
-; Number formatting buffer (is ok to be 65, because it's not needed)
+; Number formatting buffer
 ql_number_print_buffer: times ql_number_print_buffer_len db 0
 
 ; a b c d e f g h i j k l m n o p q r s t u v w x y z
@@ -87,10 +90,10 @@ ql_empty_function:
 ; Flush output buffer
 ; CONV: SYSTEM-V 64
 ; USES:
-;	RAX
-;	RDI
-;	RSI
-;	RDX
+;	RAX (= 0)
+;	RDI (= 1)
+;	RSI (= ql_out_buffer)
+;	RDX (= *ql_out_buffer_current_len)
 ql_flush:
 	mov rax, [ql_out_buffer_current_len]
 
@@ -181,7 +184,7 @@ ql_print_int_base2:
 
 	; handle zero case
 	dec rdi
-	mov rdi, 30h
+	mov byte [rdi], 30h
 	jmp .end
 
 .continue:
@@ -219,7 +222,7 @@ ql_print_int_base8:
 
 	; handle zero case
 	dec rdi
-	mov rdi, 30h
+	mov byte [rdi], 30h
 	jmp .end
 
 .continue:
@@ -252,19 +255,21 @@ ql_print_int_base8:
 ql_print_int_base10:
 	xor rdx, rdx
 
-	push rdi
-
 	mov rax, rdi
 	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 1
 
 	test rax, rax
 	jnz .nonzero
 
+	; Write '0' character and exit
 	dec rdi
 	mov byte [rdi], 0x30
 	jmp .end
 
 .nonzero:
+
+	; Save RAX to decide if '-' character is needed
+	push rax
 
 	; Negate rax if it is negative
 	cmp rax, 0
@@ -289,6 +294,7 @@ ql_print_int_base10:
 	test rax, rax
 	jnz .continue
 
+	; Load RDI to write '-' character
 	pop rax
 	cmp rax, 0
 	jge .end
@@ -298,7 +304,7 @@ ql_print_int_base10:
 	mov byte [rdi], 0x2D
 
 .end:
-	; Print string in r10
+	; Print string
 	call ql_print_str
 	ret
 
@@ -320,7 +326,7 @@ ql_print_int_base16:
 
 	; handle zero case
 	dec rdi
-	mov rdi, 30h
+	mov byte [rdi], 30h
 	jmp .end
 
 .continue:
@@ -356,54 +362,107 @@ ql_print_float:
 	call ql_print_int_base16
 	ret
 
-; Print string (new implementation)
+; Print string (new new implementation)
 ; CONV: SYSTEM-V 64
 ; IN:
 ;	string to print (null-terminated) - RDI
 ; USES:
-;	???
-ql_print_str_2:
+;	RSI
+;	RDI
+;	RAX
+;	RDX
+ql_print_str:
 	; Calculate string length
 	call ql_str_length
 
-	; Check if input string is longer, than input buffer. In this case, it's better to output it with systemcall only.
-	cmp rax, ql_out_buffer_len
-	jge .very_long_str
+	; Get out buffer rest count
+	mov rsi, ql_out_buffer_len * 2
+	sub rsi, [ql_out_buffer_current_len]
 
-	; Read rest length of current buffer
-	mov rbx, ql_out_buffer_len
-	sub rbx, [ql_out_buffer_current_len]
+	; Check if string is TOO long
+	cmp rax, rsi
+	jae .very_long_str
 
-	; Compare output length with rbx
-	cmp rbx, rax
+	; rsi = out_buffer_len - out_buffer_current_len
+	sub rsi, ql_out_buffer_len
 
-	; If rest of buffer is equal
-	jg .write
+	; Test if the string can be fully written to out buffer
+	cmp rax, rsi
+	jae .long_str
 
-.write:
+.short_str:
+	mov rsi, ql_out_buffer
+	add rsi, [ql_out_buffer_current_len]
+	add [ql_out_buffer_current_len], rax
 
-	xor rbx, rax
-	jnz .end
+.short_loop_start:
+	mov dl, [rdi]
+	inc rdi
+	mov [rsi], dl
+	inc rsi
 
-	; Fill
-	mov qword [ql_out_buffer_current_len], ql_out_buffer_len
-	; Flush current buffer
-	call ql_flush
+.short_test:
+	dec rax
+	jnz .short_loop_start
 
-.end:
 	ret
 
-.very_long_str:
-	; TODO: Save registers
+.long_str: ; Write start, flush, write rest
+	mov rsi, ql_out_buffer
+	add rsi, [ql_out_buffer_current_len]
 
-	; Flush input buffer
+	; Fill out buffer
+.long_loop_start:
+	mov dl, [rdi]
+	inc rdi
+	mov [rsi], dl
+	inc rsi
+
+.long_test:
+	cmp rsi, ql_out_buffer_end
+	jb .long_loop_start
+
+	; Compute rest length
+	add rax, ql_out_buffer_len
+	sub rax, [ql_out_buffer_current_len]
+
+	; Write current len
+	mov qword [ql_out_buffer_current_len], ql_out_buffer_len
+
+	; Flush
+	push rax
+	push rdi
 	call ql_flush
+	pop rdi
+	pop rax
 
-	; Display input string with systemcall only.
-	mov rdx, rax
-	mov rsi, rdi
-	mov rax, 1
-	mov rdi, 1
+	; Write rest
+.long_end_start:
+	mov dl, [rdi]
+	inc rdi
+	mov [rsi], dl
+	inc rsi
+.long_end_test:
+	dec rax
+	jnz .long_end_start
+
+	; Exit
+	ret
+
+.very_long_str: ; Flush, write by systemcall
+
+	; Flush string buffer
+	push rax
+	push rdi
+	call ql_flush
+	pop rdi
+	pop rax
+
+	; Write string by systemcall
+	mov rdx, rax ; Buffer length
+	mov rsi, rdi ; Buffer pointer
+	mov rdi, 1   ; File descriptor
+	mov rax, 1   ; Systemcall index
 	syscall
 
 	ret
@@ -416,9 +475,11 @@ ql_print_str_2:
 ;	RSI
 ;	RDI
 ;	R8
+;	RAX
+;	RDX
 ; TODO:
 ;	REWRITE THIS SH*T
-ql_print_str:
+ql_print_str_old:
 	; RAX = string length
 	call ql_str_length
 
@@ -535,7 +596,7 @@ ql_print_fmt:
 	mov dil, al
 	call ql_print_char
 
-	; Print character
+	; Continue
 	jmp .main_loop
 
 .handle_fmt:
@@ -558,7 +619,7 @@ ql_print_fmt:
 	cmp al, 0x25
 	je .print_char
 
-	; Test for validness to be used with jump table
+	; Check for jump table usability
 	cmp al, 0x62
 	jb .main_loop
 	cmp al, 0x78

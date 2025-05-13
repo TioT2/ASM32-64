@@ -1,5 +1,5 @@
 /**
- * Tiny standard library replacer.
+ * Tiny standard library.
  */
 
 #ifndef QL_H_

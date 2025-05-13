@@ -62,6 +62,9 @@ void mnd_frame_resize( mnd_frame *self, size_t width, size_t height );
  * Different rendering functionb
  */
 
+/// Generic mandelbrot render function pointer
+typedef void (*mnd_render_proc)( mnd_frame *frame, mnd_compl begin, mnd_compl end );
+
 /// Common rendering function
 void mnd_render_portable(
     mnd_frame *frame,

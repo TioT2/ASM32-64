@@ -12,6 +12,16 @@
 
 // TODO: Add movement?
 
+// Caluclate average rendering time
+double test_render(
+    mnd_render_proc render_func,
+    size_t frame_width,
+    size_t frame_height,
+    uint32_t repeat_count
+) {
+    clock();
+}
+
 int main( int argc, char **argv ) {
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
 
