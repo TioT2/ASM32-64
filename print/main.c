@@ -1,11 +1,10 @@
-/// Main program function
+/**
+ * @brief main program file
+ */
 
 #include "ql.h"
 
-/**
- * @brief Main program function (C STDLIB initialization is disabled, so I must use _start as entry point)
- */
-void _start( void ) {
+int main( void ) {
 	// newline!
 	ql_print_str("\nnewline test!\n");
 
@@ -22,8 +21,9 @@ void _start( void ) {
 	ql_print_fmt("%o%% %c\n", 8ll, 'q');
 
 	// Test floating point overflow
-	ql_print_fmt("%f %f %f %f %f %f %f %f %f %f\n", 3.0, 1.0, 2.0, 4.0, 5.0, 5.0, 5.0, 5.0, 4.0, 7.0);
+	ql_print_fmt("%f %f %f %f %f %f %f %f %f %f\n", 0.42, -571.0312, 22222222.02, 4.0, 5.0, 5.0, 5.0, 5.0, 4.0, 7.0);
 
+	// Print buffer
 	char buffer[1024] = {0};
 	for (ql_usize i = 0; i < sizeof(buffer) - 1; i++)
 		buffer[i] = 'U';
@@ -37,8 +37,8 @@ void _start( void ) {
 		ql_print_char(i % (int)('z' - 'a' + 1) + 'a');
 	ql_flush();
 
-	// Exit from program with success status
-	ql_exit(0);
-} // _start
+	// Exit
+	return 0;
+} // main
 
 // main.c

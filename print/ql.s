@@ -1,4 +1,4 @@
-; Hello world example
+; QuickLibrary implementation file
 
 section .data
 
@@ -152,7 +152,7 @@ ql_print_char:
 	cmp r8, ql_out_buffer_len
 	jb .no_flush
 
-	; It's very infrequent, so it's ok to do this here
+	; This function call is unlikely, so it's ok to do this here
 	push rax
 	push rsi
 	push rdx
@@ -242,17 +242,17 @@ ql_print_int_base8:
 	call ql_print_str
 	ret
 
-; Print binary integer
+; Fill int buffer with base10 integer representation
 ; CONV: SYSTEM-V 64
 ; IN:
-;	number to print - RDI
+;	number to fill buffer with - RDI
 ; USES:
 ;	RAX
 ;	RDX
-;	RDI
+;	RDI (= string start)
 ;	RSI
 ;	R8
-ql_print_int_base10:
+ql_fill_int_base10:
 	xor rdx, rdx
 
 	mov rax, rdi
@@ -304,7 +304,20 @@ ql_print_int_base10:
 	mov byte [rdi], 0x2D
 
 .end:
-	; Print string
+	ret
+
+; Print binary integer
+; CONV: SYSTEM-V 64
+; IN:
+;	number to print - RDI
+; USES:
+;	RAX
+;	RDX
+;	RDI
+;	RSI
+;	R8
+ql_print_int_base10:
+	call ql_fill_int_base10
 	call ql_print_str
 	ret
 
@@ -355,11 +368,71 @@ ql_print_int_base16:
 ; Print float (alias to ql_print_int_base16 now)
 ; IN:
 ;	number to print - rdi
+; USES:
+;	RAX
+;	RDX
+;	RDI
+;	RSI
+;	R8
 ; TODO:
 ;	BUILD ACTUAL FLOAT PRINTING FUNCTION
 ql_print_float:
+	; rdi = i64(float(rdi) * 10000.0)
+	movq rax, xmm1
 	movq xmm0, rdi
-	call ql_print_int_base16
+	mov rdx, 0x40C3880000000000 ; bitcast<i64>(10000.0lf)
+	movq xmm1, rdx
+	mulsd xmm0, xmm1
+	movq xmm1, rax
+	cvtsd2si rdi, xmm0
+
+	cmp rdi, 0
+	jge .greater_zero
+
+	; Print '-'
+	mov rsi, rdi
+	mov dil, 0x2D
+	call ql_print_char
+	mov rdi, rsi
+	neg rdi
+
+	; Here RDI is positive
+.greater_zero:
+
+	; Check if RDI has integer part
+	cmp rdi, 10000
+	jl .no_int
+
+	; Write integer part
+	call ql_fill_int_base10
+
+	; uugh
+	mov sil, [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 1]
+	mov [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 0], sil
+	mov sil, [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 2]
+	mov [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 1], sil
+	mov sil, [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 3]
+	mov [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 2], sil
+	mov byte [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 3], 0x2E
+
+	jmp .print	
+.no_int:
+
+	; Write '0.00000'
+	mov byte [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 6], 0x30
+	mov byte [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 5], 0x2E
+	mov byte [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 4], 0x30
+	mov byte [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 3], 0x30
+	mov byte [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 2], 0x30
+	mov byte [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 1], 0x30
+	mov byte [ql_number_print_buffer + ql_number_print_buffer_len - 2 - 0], 0x30
+
+	; Call fill function
+	call ql_fill_int_base10
+	mov rdi, ql_number_print_buffer + ql_number_print_buffer_len - 8
+
+.print:
+	call ql_print_str
 	ret
 
 ; Print string (new new implementation)
@@ -464,35 +537,6 @@ ql_print_str:
 	mov rdi, 1   ; File descriptor
 	mov rax, 1   ; Systemcall index
 	syscall
-
-	ret
-
-; Print strnig
-; CONV: SYSTEM-V 64
-; IN:
-;	string to print (null-terminated) - RDI
-; USES:
-;	RSI
-;	RDI
-;	R8
-;	RAX
-;	RDX
-; TODO:
-;	REWRITE THIS SH*T
-ql_print_str_old:
-	; RAX = string length
-	call ql_str_length
-
-	mov rsi, rdi
-	jmp .test
-
-.continue:
-	call ql_print_char
-.test:
-	mov dil, [rsi]
-	inc rsi
-	test dil, dil
-	jnz .continue
 
 	ret
 
@@ -652,3 +696,5 @@ ql_print_fmt:
 	push rax
 
 	ret
+
+; ql.s
